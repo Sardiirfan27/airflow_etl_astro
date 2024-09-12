@@ -1,0 +1,8 @@
+version: "3.1"
+services:
+  scheduler:
+    volumes:
+      - ./data:/usr/local/airflow/data
+  webserver:
+    volumes:
+      - ./data:/usr/local/airflow/data  # Mapping folder 'data' di host ke '/usr/local/airflow/data' di container
