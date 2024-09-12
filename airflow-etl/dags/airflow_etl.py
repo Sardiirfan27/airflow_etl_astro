@@ -3,10 +3,11 @@ import pendulum
 import logging
 import xml.etree.ElementTree as ET
 import csv
+from datetime import datetime
 from airflow.decorators import (
     dag,
     task,
-) 
+)
 from pymongo import MongoClient
 import requests
 import os
@@ -65,7 +66,7 @@ def rss_feed_dag():
     def transform(**context):
         """
         Fungsi transform untuk memproses file XML RSS feed dan mengubahnya menjadi
-        file CSV yang berisi judul, deskripsi, dan GUID dari item-item dalam feed.
+        file CSV yang berisi judul, deskripsi, tanggal publikasi dari item-item dalam feed.
         
         Returns:
             str: Nama file CSV yang disimpan.
@@ -78,14 +79,29 @@ def rss_feed_dag():
         tree = ET.parse(fileName)
         root = tree.getroot()
         items = []
+
+        # Fungsi untuk mengubah format tanggal
+        def format_date(pubDate):
+            try:
+                # Parsing tanggal menggunakan format RSS standar
+                parsed_date = datetime.strptime(pubDate, '%a, %d %b %Y %H:%M:%S %z')
+                # Mengubah format ke YYYY-MM-DD
+                return parsed_date.strftime('%Y-%m-%d')
+            except ValueError:
+                return ''
         
         # Mengambil elemen-elemen 'item' dari RSS feed
         for item in root.findall('.//item'):
-            title = item.find('title').text
-            description = item.find('description').text
-            guid = item.find("guid").text
+            title = item.find('title').text if item.find('title') is not None else ''
+            link = item.find('link').text if item.find('link') is not None else ''
+            description = item.find('description').text if item.find('description') is not None else ''
+            pubDate = item.find('pubDate').text if item.find('pubDate') is not None else ''
+            
+            # Format tanggal
+            formatted_pubDate = format_date(pubDate)
+            
             # Menambahkan informasi dari item ke dalam list items
-            items.append((title, description, guid))
+            items.append((title, link, description, formatted_pubDate))
         
         # Directory untuk menyimpan data yang telah diolah (curated)
         data_dir = os.getenv("DATA_DIR", "./data")
@@ -96,12 +112,12 @@ def rss_feed_dag():
             os.mkdir(curated_dir)
         
         # Buat nama file CSV berdasarkan timestamp sekarang
-        curratedFilename = f'./data/curated/curated_{pendulum.now().to_iso8601_string()}.csv'
+        curratedFilename = os.path.join(curated_dir, f'curated_{pendulum.now().to_iso8601_string()}.csv')
         
         # Menyimpan data yang diolah ke file CSV
-        with open(curratedFilename, 'w', newline='') as file:
+        with open(curratedFilename, 'w', newline='', encoding='utf-8') as file:
             writer = csv.writer(file)
-            writer.writerow(['Title', 'Description', 'GUID'])  # Header CSV
+            writer.writerow(['Title', 'Link', 'Description', 'Publication Date'])  # Header CSV
             writer.writerows(items)  # Isi CSV dengan data items
         
         return curratedFilename  # Mengembalikan nama file CSV yang disimpan
@@ -122,7 +138,7 @@ def rss_feed_dag():
         collection = db['rss_feed']  # Koleksi target
         
         # Membaca file CSV dan menyimpannya ke MongoDB
-        with open(filename, newline='') as csvfile:
+        with open(filename, newline='', encoding='utf-8') as csvfile:
             items = csv.DictReader(csvfile)
             collection.insert_many(items)  # Menyimpan data ke MongoDB
 
